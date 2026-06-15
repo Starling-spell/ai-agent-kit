@@ -22,6 +22,26 @@ export function genlayerUserMode(): {
     : null;
 }
 
+// GenLayer signs through a MetaMask Snap, so it needs MetaMask's provider
+// specifically — Rabby / Coinbase / Brave don't implement wallet_getSnaps.
+function getMetaMaskProvider(): any {
+  if (typeof window === "undefined") return null;
+  const eth = (window as unknown as { ethereum?: any }).ethereum;
+  if (!eth) return null;
+  const isRealMetaMask = (p: any) =>
+    p &&
+    p.isMetaMask &&
+    !p.isRabby &&
+    !p.isBraveWallet &&
+    !p.isCoinbaseWallet &&
+    !p.isPhantom;
+  if (Array.isArray(eth.providers)) {
+    const mm = eth.providers.find(isRealMetaMask);
+    if (mm) return mm;
+  }
+  return isRealMetaMask(eth) ? eth : null;
+}
+
 export async function decideViaUserWallet(params: {
   contract: `0x${string}`;
   chain: string;
@@ -32,11 +52,13 @@ export async function decideViaUserWallet(params: {
   input: string;
   action: ActionKind;
 }): Promise<AgentRunResult> {
-  const eth =
-    typeof window !== "undefined"
-      ? (window as unknown as { ethereum?: unknown }).ethereum
-      : undefined;
-  if (!eth) throw new Error("No browser wallet found for GenLayer signing.");
+  const eth = getMetaMaskProvider();
+  if (!eth) {
+    throw new Error(
+      "GenLayer signing requires MetaMask (it signs through a MetaMask Snap). " +
+        "The connected wallet (e.g. Rabby) doesn't support Snaps — connect MetaMask and retry.",
+    );
+  }
 
   const gljs = (await import("genlayer-js")) as any;
   const chainsMod = (await import("genlayer-js/chains")) as any;
