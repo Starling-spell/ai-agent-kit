@@ -6,10 +6,12 @@ export function Topbar({
   title,
   subtitle,
   onNew,
+  extra,
 }: {
   title: string;
   subtitle?: string;
   onNew?: () => void;
+  extra?: React.ReactNode;
 }) {
   return (
     <header className="topbar">
@@ -23,6 +25,7 @@ export function Topbar({
             + New agent
           </button>
         )}
+        {extra}
         <ConnectWallet />
       </div>
     </header>

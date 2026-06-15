@@ -3,17 +3,19 @@
 import type { Agent } from "./types";
 import { agentsStore } from "./agents-store";
 
-// Hybrid persistence: when a wallet is connected AND Vercel KV is configured,
-// agents live server-side (keyed by address) so they follow the user across
-// devices. Otherwise they fall back to per-browser localStorage. Local agents
-// are migrated up to the cloud the first time both are available.
+// Hybrid persistence. When the user is signed in (SIWE) AND Vercel KV is
+// configured, agents live server-side (keyed by the verified wallet address)
+// and follow the user across devices. Otherwise they fall back to per-browser
+// localStorage. Local agents migrate to the cloud the first time both are
+// available. The server derives the owner from the session cookie, so these
+// requests carry no address — identity is proven, not asserted.
 
 const sortByCreated = (a: Agent[]) =>
   [...a].sort((x, y) => y.createdAt.localeCompare(x.createdAt));
 
-async function remoteList(owner: string): Promise<Agent[] | null> {
+async function remoteList(): Promise<Agent[] | null> {
   try {
-    const res = await fetch(`/api/store?owner=${owner}`);
+    const res = await fetch("/api/store");
     if (!res.ok) return null;
     const { agents } = await res.json();
     return Array.isArray(agents) ? agents : [];
@@ -22,12 +24,12 @@ async function remoteList(owner: string): Promise<Agent[] | null> {
   }
 }
 
-async function remotePut(owner: string, agents: Agent[]): Promise<boolean> {
+async function remotePut(agents: Agent[]): Promise<boolean> {
   try {
     const res = await fetch("/api/store", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ owner, agents }),
+      body: JSON.stringify({ agents }),
     });
     return res.ok;
   } catch {
@@ -35,17 +37,14 @@ async function remotePut(owner: string, agents: Agent[]): Promise<boolean> {
   }
 }
 
-export async function loadAgents(
-  owner: string | null,
-  kv: boolean,
-): Promise<Agent[]> {
-  if (kv && owner) {
-    const remote = await remoteList(owner);
+export async function loadAgents(canSync: boolean): Promise<Agent[]> {
+  if (canSync) {
+    const remote = await remoteList();
     if (remote !== null) {
       if (remote.length === 0) {
         const local = agentsStore.list();
         if (local.length) {
-          await remotePut(owner, local);
+          await remotePut(local);
           return sortByCreated(local);
         }
       }
@@ -56,13 +55,11 @@ export async function loadAgents(
 }
 
 export async function saveAgents(
-  owner: string | null,
-  kv: boolean,
+  canSync: boolean,
   agents: Agent[],
 ): Promise<void> {
-  if (kv && owner) {
-    const ok = await remotePut(owner, agents);
-    if (ok) return;
+  if (canSync) {
+    if (await remotePut(agents)) return;
   }
   agentsStore.replaceAll(agents);
 }

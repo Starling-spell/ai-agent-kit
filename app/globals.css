@@ -834,3 +834,8 @@ label {
   margin-top: 8px;
   line-height: 1.4;
 }
+
+.chip.sync-ok {
+  color: var(--good);
+  border-color: var(--good);
+}

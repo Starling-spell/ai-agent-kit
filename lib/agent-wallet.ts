@@ -9,6 +9,7 @@ import {
   formatEther,
 } from "viem";
 import { chains } from "./chains";
+import { agentActionsAbi } from "./agent-actions";
 
 // ============================================================
 //  Optional per-agent wallets — for "autonomous" agents that
@@ -81,5 +82,28 @@ export async function agentSendMemo(
     to: account.address,
     value: 0n,
     data: stringToHex(memo),
+  });
+}
+
+/** Autonomous on-chain action: call the AgentActions log contract. Testnet only. */
+export async function agentLogAction(
+  agentId: string,
+  chainId: number,
+  contract: `0x${string}`,
+  args: [string, string, string, `0x${string}`],
+): Promise<string> {
+  const pk = getKey(agentId);
+  const chain = chainById(chainId);
+  if (!pk) throw new Error("This agent's wallet key is not on this device.");
+  if (!chain) throw new Error("Unknown testnet.");
+  const account = privateKeyToAccount(pk);
+  const wallet = createWalletClient({ account, chain, transport: http() });
+  return wallet.writeContract({
+    address: contract,
+    abi: agentActionsAbi,
+    functionName: "logAction",
+    args,
+    account,
+    chain,
   });
 }

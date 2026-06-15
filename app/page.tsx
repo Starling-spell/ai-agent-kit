@@ -1,18 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useChainId, useSignMessage } from "wagmi";
 import { Sidebar, type View } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { StatTile, AgentCard } from "@/components/agent-ui";
 import { CreateAgentModal } from "@/components/CreateAgentModal";
 import { AgentDetail } from "@/components/AgentDetail";
 import { loadAgents, saveAgents } from "@/lib/store";
+import { getSession, signIn, signOut } from "@/lib/siwe-client";
 import { removeAgentWallet } from "@/lib/agent-wallet";
 import type { Agent, AgentRun } from "@/lib/types";
 
 export default function Home() {
   const { address } = useAccount();
+  const chainId = useChainId();
+  const { signMessageAsync } = useSignMessage();
+
   const [view, setView] = useState<View>("overview");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -20,29 +24,63 @@ export default function Home() {
   const [mode, setMode] = useState<{ ai: string; tx: string; kv: boolean } | null>(
     null,
   );
+  const [sessionAddress, setSessionAddress] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
-  const owner = address ?? null;
   const kv = !!mode?.kv;
+  const canSync =
+    kv &&
+    !!address &&
+    !!sessionAddress &&
+    sessionAddress.toLowerCase() === address.toLowerCase();
 
   useEffect(() => {
     fetch("/api/health")
       .then((r) => r.json())
       .then(setMode)
       .catch(() => setMode(null));
+    getSession().then(setSessionAddress);
   }, []);
 
-  // (Re)load agents whenever the owner or storage backend changes.
+  // Drop a stale session if the connected wallet changes to a different address.
+  useEffect(() => {
+    if (
+      sessionAddress &&
+      address &&
+      sessionAddress.toLowerCase() !== address.toLowerCase()
+    ) {
+      void signOut();
+      setSessionAddress(null);
+    }
+  }, [address, sessionAddress]);
+
+  // (Re)load agents whenever the sync capability changes.
   useEffect(() => {
     let cancelled = false;
-    loadAgents(owner, kv).then((a) => !cancelled && setAgents(a));
+    loadAgents(canSync).then((a) => !cancelled && setAgents(a));
     return () => {
       cancelled = true;
     };
-  }, [owner, kv]);
+  }, [canSync]);
 
   function persist(next: Agent[]) {
     setAgents(next);
-    void saveAgents(owner, kv, next);
+    void saveAgents(canSync, next);
+  }
+
+  async function handleSignIn() {
+    if (!address) return;
+    setSigningIn(true);
+    try {
+      const a = await signIn(address, chainId, (args) =>
+        signMessageAsync({ message: args.message }),
+      );
+      setSessionAddress(a);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSigningIn(false);
+    }
   }
 
   const selected = selectedId
@@ -79,6 +117,17 @@ export default function Home() {
   const active = agents.filter((a) => a.status === "active").length;
   const txMode = mode?.tx === "live" ? "live" : "mock";
 
+  const sync =
+    !kv || !address ? null : canSync ? (
+      <span className="chip sync-ok" title={`Synced as ${sessionAddress}`}>
+        ✓ Synced
+      </span>
+    ) : (
+      <button className="btn-ghost" onClick={handleSignIn} disabled={signingIn}>
+        {signingIn ? "Signing…" : "Sign in to sync"}
+      </button>
+    );
+
   return (
     <div className="app">
       <Sidebar
@@ -96,7 +145,8 @@ export default function Home() {
           <>
             <Topbar
               title={selected.name}
-              subtitle={kv && owner ? "Agent detail · synced" : "Agent detail"}
+              subtitle={canSync ? "Agent detail · synced" : "Agent detail"}
+              extra={sync}
             />
             <div className="content">
               <AgentDetail
@@ -114,11 +164,12 @@ export default function Home() {
             <Topbar
               title="Overview"
               subtitle={
-                kv && owner
+                canSync
                   ? "Synced to your wallet across devices"
                   : "Your GenLayer agents at a glance"
               }
               onNew={() => setCreateOpen(true)}
+              extra={sync}
             />
             <div className="content">
               <div className="stat-row">
@@ -147,6 +198,7 @@ export default function Home() {
               title="Agents"
               subtitle={`${agents.length} ${agents.length === 1 ? "agent" : "agents"}`}
               onNew={() => setCreateOpen(true)}
+              extra={sync}
             />
             <div className="content">
               {agents.length === 0 ? (

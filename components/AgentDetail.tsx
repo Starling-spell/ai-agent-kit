@@ -1,12 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount, useChainId, useSendTransaction, useSwitchChain } from "wagmi";
-import { stringToHex } from "viem";
+import {
+  useAccount,
+  useChainId,
+  useSendTransaction,
+  useSwitchChain,
+  useWriteContract,
+} from "wagmi";
+import { stringToHex, keccak256 } from "viem";
 import type { Agent, AgentRun, AgentTx } from "@/lib/types";
 import { templateById } from "@/lib/templates";
 import { chainName, explorerTx, faucetUrl } from "@/lib/chains";
-import { agentBalance, agentSendMemo, getAgentAddress } from "@/lib/agent-wallet";
+import { agentActionsAbi, agentActionsAddress } from "@/lib/agent-actions";
+import {
+  agentBalance,
+  agentSendMemo,
+  agentLogAction,
+  getAgentAddress,
+} from "@/lib/agent-wallet";
 import { DecisionBadge } from "./agent-ui";
 
 export function AgentDetail({
@@ -36,6 +48,7 @@ export function AgentDetail({
   const chainId = useChainId();
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
+  const { writeContractAsync } = useWriteContract();
 
   const needsTx = agent.action !== "none";
   const live = txMode === "live";
@@ -91,37 +104,50 @@ export function AgentDetail({
       let tx: AgentTx | undefined;
       if (decision.approved && needsTx) {
         const memo = `agent:${agent.name}:${decision.action}`;
+        const actionsAddr = agentActionsAddress(agent.chainId);
+        const runKey = keccak256(stringToHex(runId));
+        const logArgs: [string, string, string, `0x${string}`] = [
+          agent.name,
+          String(decision.action),
+          memo,
+          runKey,
+        ];
+        const mkTx = (hash: `0x${string}`): AgentTx => ({
+          hash,
+          chainId: agent.chainId,
+          explorerUrl: explorerTx(agent.chainId, hash),
+          summary: `${agent.name} · ${decision.action}${actionsAddr ? " · logAction" : ""}`,
+          status: "submitted",
+          source: "viem",
+        });
+
         if (live && auto) {
           // The agent signs from its own funded testnet wallet — no user prompt.
-          const hash = await agentSendMemo(agent.id, agent.chainId, memo);
-          tx = {
-            hash,
-            chainId: agent.chainId,
-            explorerUrl: explorerTx(agent.chainId, hash),
-            summary: `${agent.name} · ${decision.action}`,
-            status: "submitted",
-            source: "viem",
-          };
+          const hash = actionsAddr
+            ? await agentLogAction(agent.id, agent.chainId, actionsAddr, logArgs)
+            : await agentSendMemo(agent.id, agent.chainId, memo);
+          tx = mkTx(hash as `0x${string}`);
         } else if (live) {
           // Suggest mode: the connected wallet signs.
           if (!isConnected || !address)
             throw new Error("Connect a wallet to execute the testnet action.");
           if (chainId !== agent.chainId)
             await switchChainAsync({ chainId: agent.chainId });
-          const hash = await sendTransactionAsync({
-            to: address,
-            value: 0n,
-            data: stringToHex(memo),
-            chainId: agent.chainId,
-          });
-          tx = {
-            hash,
-            chainId: agent.chainId,
-            explorerUrl: explorerTx(agent.chainId, hash),
-            summary: `${agent.name} · ${decision.action}`,
-            status: "submitted",
-            source: "viem",
-          };
+          const hash = actionsAddr
+            ? await writeContractAsync({
+                address: actionsAddr,
+                abi: agentActionsAbi,
+                functionName: "logAction",
+                args: logArgs,
+                chainId: agent.chainId,
+              })
+            : await sendTransactionAsync({
+                to: address,
+                value: 0n,
+                data: stringToHex(memo),
+                chainId: agent.chainId,
+              });
+          tx = mkTx(hash as `0x${string}`);
         } else {
           tx = await mockExecute();
         }
@@ -258,6 +284,9 @@ export function AgentDetail({
                   ? "is signed by the agent's own wallet"
                   : "is signed by your connected wallet"}{" "}
               on {chainName(agent.chainId)}.
+              {live && agentActionsAddress(agent.chainId)
+                ? " It calls the AgentActions log contract."
+                : ""}
               {live && !auto && !isConnected && " Connect a wallet first."}
             </div>
           )}
