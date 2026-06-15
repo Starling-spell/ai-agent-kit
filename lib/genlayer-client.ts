@@ -27,6 +27,10 @@ export function genlayerUserMode(): {
     : null;
 }
 
+const GL_EXPLORERS: Record<string, string> = {
+  studionet: "https://explorer-studio.genlayer.com",
+};
+
 const KEY_CACHE = (addr: string) => `orion:gl-signer:${addr.toLowerCase()}`;
 
 // Derive (once per session) a GenLayer signing key bound to the user's wallet.
@@ -85,6 +89,10 @@ export async function decideViaUserWallet(params: {
     value: BigInt(0),
   });
 
+  const explorerBase =
+    chain?.blockExplorers?.default?.url ?? GL_EXPLORERS[params.chain] ?? "";
+  const explorerUrl = explorerBase ? `${explorerBase}/tx/${txHash}` : "";
+
   try {
     const typesMod = (await import("genlayer-js/types")) as any;
     if (typeof client.waitForTransactionReceipt === "function") {
@@ -114,6 +122,8 @@ export async function decideViaUserWallet(params: {
           reasoning: String(p.reasoning ?? ""),
         },
         source: "genlayer",
+        txHash: String(txHash),
+        explorerUrl,
       };
     }
     await new Promise((r) => setTimeout(r, 2000));

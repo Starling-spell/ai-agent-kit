@@ -93,6 +93,7 @@ export function AgentDetail({
       let response: string;
       let decision: AgentDecision;
       let source: "genlayer" | "mock";
+      let genlayerTx: AgentRun["genlayerTx"];
       if (userMode && isConnected && address) {
         // Per-user mode: the user signs their own decide() tx on GenLayer testnet.
         const r = await decideViaUserWallet({
@@ -109,6 +110,8 @@ export function AgentDetail({
         response = r.response;
         decision = r.decision;
         source = r.source;
+        if (r.txHash)
+          genlayerTx = { hash: r.txHash, explorerUrl: r.explorerUrl ?? "" };
       } else {
         const res = await fetch("/api/agents/respond", {
           method: "POST",
@@ -187,6 +190,7 @@ export function AgentDetail({
         response,
         decision,
         tx,
+        genlayerTx,
         source,
       });
       setInput("");
@@ -371,6 +375,25 @@ export function AgentDetail({
                   </div>
                   <div className="run-input">“{r.input}”</div>
                   <div className="run-response">{r.response}</div>
+                  {r.genlayerTx && (
+                    <div className="run-tx">
+                      <span className="tx-tag submitted">GenLayer tx</span>
+                      {r.genlayerTx.explorerUrl ? (
+                        <a
+                          href={r.genlayerTx.explorerUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mono"
+                        >
+                          {r.genlayerTx.hash.slice(0, 14)}…
+                        </a>
+                      ) : (
+                        <span className="mono">
+                          {r.genlayerTx.hash.slice(0, 14)}…
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {r.tx && (
                     <div className="run-tx">
                       <span className={`tx-tag ${r.tx.status}`}>{r.tx.status}</span>

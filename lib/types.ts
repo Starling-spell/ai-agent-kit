@@ -58,5 +58,7 @@ export interface AgentRun {
   response: string;
   decision: AgentDecision;
   tx?: AgentTx;
+  /** The on-chain GenLayer decide() transaction (per-user signing mode). */
+  genlayerTx?: { hash: string; explorerUrl: string };
   source: "genlayer" | "mock";
 }

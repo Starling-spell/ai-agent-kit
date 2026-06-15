@@ -14,6 +14,8 @@ export interface AgentRunResult {
   response: string;
   decision: AgentDecision;
   source: "genlayer" | "mock";
+  txHash?: string;
+  explorerUrl?: string;
 }
 
 const RISK_WORDS = [
