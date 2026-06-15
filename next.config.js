@@ -9,6 +9,11 @@ const nextConfig = {
       ...config.resolve.fallback,
       "@react-native-async-storage/async-storage": false,
     };
+    // viem's `tempo` chain pulls an `ox` module via a dynamic expression.
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      { module: /node_modules\/ox\// },
+    ];
     return config;
   },
 };

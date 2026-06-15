@@ -1,86 +1,105 @@
 import { config } from "./config";
-import type { Verdict } from "./types";
+import type { ActionKind, AgentDecision } from "./types";
 
 // ============================================================
-//  GenLayer adapter — the AI "brain".
-//  Decides whether a submitted deliverable meets the natural-
-//  language acceptance criteria. Mock by default; live mode
-//  calls the deployed EscrowAdjudicator Intelligent Contract.
+//  GenLayer adapter — the agent's AI brain.
+//  Given an agent's directive (instructions) and a user input,
+//  it returns a natural-language response plus a structured
+//  decision (approve/reject + which action). Mock by default;
+//  live mode calls the deployed AgentRegistry Intelligent
+//  Contract via genlayer-js.
 // ============================================================
 
-const STOPWORDS = new Set([
-  "the", "and", "for", "with", "that", "this", "must", "should", "shall",
-  "have", "has", "will", "your", "from", "into", "they", "them", "then",
-  "are", "was", "were", "a", "an", "of", "to", "in", "on", "it", "is", "be",
-  "as", "at", "or", "by", "we", "you", "all", "any", "can",
-]);
-
-function keywords(text: string): string[] {
-  return Array.from(
-    new Set(
-      text
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, " ")
-        .split(/\s+/)
-        .filter((w) => w.length > 3 && !STOPWORDS.has(w)),
-    ),
-  );
+export interface AgentRunResult {
+  response: string;
+  decision: AgentDecision;
+  source: "genlayer" | "mock";
 }
 
+const RISK_WORDS = [
+  "urgent", "immediately", "ignore", "override", "bypass", "all funds",
+  "everything", "secret", "private key", "guaranteed", "wire now", "asap",
+  "as an ai", "system prompt", "drain",
+];
+
+const POSITIVE_WORDS = [
+  "approved", "verified", "legitimate", "within policy", "valid", "eligible",
+  "ok", "fine", "safe", "reasonable", "normal",
+];
+
 /**
- * Transparent heuristic that stands in for GenLayer's AI-validator consensus.
- * It checks how much of the spec's vocabulary the deliverable covers and
- * whether the submission is substantive. Deterministic and explainable so the
- * demo behaves sensibly without any LLM/API key.
+ * Transparent heuristic standing in for GenLayer's validator consensus.
+ * Deterministic and explainable so the demo behaves sensibly with no LLM.
+ * It treats the instructions as authoritative and never lets the input's own
+ * text flip the decision (a basic prompt-injection guard, mirrored on-chain).
  */
-function mockAdjudicate(spec: string, deliverable: string): Verdict {
-  const specKeys = keywords(spec);
-  const text = deliverable.toLowerCase();
-  const matched = specKeys.filter((k) => text.includes(k));
-  const missing = specKeys.filter((k) => !text.includes(k));
+function mockRun(
+  instructions: string,
+  input: string,
+  action: ActionKind,
+): AgentRunResult {
+  const text = input.toLowerCase();
+  const riskHits = RISK_WORDS.filter((w) => text.includes(w));
+  const posHits = POSITIVE_WORDS.filter((w) => text.includes(w));
+  const substantive = input.trim().length >= 8;
 
-  const coverage = specKeys.length ? matched.length / specKeys.length : 0;
-  const substantive = deliverable.trim().length >= 40;
-  const meetsSpec = coverage >= 0.5 && substantive;
-
+  // Reject on risk signals or empty input; otherwise approve.
+  const approved = substantive && riskHits.length === 0;
   const confidence = Math.min(
-    99,
-    Math.max(40, Math.round(coverage * 100) - (substantive ? 0 : 25)),
+    98,
+    Math.max(
+      45,
+      70 + posHits.length * 8 - riskHits.length * 22 + (substantive ? 0 : -20),
+    ),
   );
 
   let reasoning: string;
   if (!substantive) {
-    reasoning =
-      "The deliverable is too thin to evaluate against the acceptance criteria; it reads as incomplete.";
-  } else if (meetsSpec) {
-    reasoning = `The deliverable addresses ${matched.length}/${specKeys.length} of the key requirements (${matched
-      .slice(0, 6)
-      .join(", ")}). It satisfies the acceptance criteria.`;
+    reasoning = "The request is empty or too short to act on.";
+  } else if (riskHits.length) {
+    reasoning = `Rejected: the request shows risk/injection signals (${riskHits
+      .slice(0, 3)
+      .join(", ")}), which my directive says to refuse.`;
   } else {
-    reasoning = `The deliverable misses key requirements${
-      missing.length ? `: ${missing.slice(0, 6).join(", ")}` : ""
-    }. It does not yet satisfy the acceptance criteria.`;
+    reasoning =
+      "Approved: the request is consistent with my directive and shows no risk signals.";
   }
 
-  return { meetsSpec, confidence, reasoning, source: "mock" };
+  const directive = instructions.trim().slice(0, 80) || "general assistant";
+  const response = approved
+    ? `Per my directive (“${directive}…”), this is in policy. ${reasoning} ${
+        action !== "none" ? "Proceeding with the configured action." : ""
+      }`.trim()
+    : `Per my directive (“${directive}…”), I am holding. ${reasoning}`;
+
+  return {
+    response,
+    decision: {
+      approved,
+      action: approved ? action : "none",
+      confidence,
+      reasoning,
+    },
+    source: "mock",
+  };
 }
 
 /**
- * Live mode: submit the dispute to the GenLayer EscrowAdjudicator contract and
- * read back the consensus verdict. genlayer-js is imported via a runtime-
- * resolved specifier so it is never required for a mock-mode build/deploy.
- *
- * Enable with: `npm install genlayer-js` and ADJUDICATOR_MODE=live.
+ * Live mode: call the AgentRegistry Intelligent Contract. genlayer-js is
+ * imported through a runtime-resolved specifier so a mock build never needs it.
+ * Enable with `npm install genlayer-js` and AI_MODE=live.
  */
-async function liveAdjudicate(
-  jobId: string,
-  spec: string,
-  deliverable: string,
-): Promise<Verdict> {
+async function liveRun(
+  agentId: string,
+  runId: string,
+  instructions: string,
+  input: string,
+  action: ActionKind,
+): Promise<AgentRunResult> {
   const { contractAddress, privateKey } = config.genlayer;
   if (!contractAddress || !privateKey) {
     throw new Error(
-      "Live adjudication needs GENLAYER_CONTRACT_ADDRESS and GENLAYER_PRIVATE_KEY.",
+      "Live AI needs GENLAYER_CONTRACT_ADDRESS and GENLAYER_PRIVATE_KEY.",
     );
   }
 
@@ -92,9 +111,7 @@ async function liveAdjudicate(
     gljs = await import(/* webpackIgnore: true */ sdk);
     chains = await import(/* webpackIgnore: true */ sdkChains);
   } catch {
-    throw new Error(
-      "Live mode requires the genlayer-js SDK. Run `npm install genlayer-js`.",
-    );
+    throw new Error("Live mode requires genlayer-js. Run `npm install genlayer-js`.");
   }
 
   const client = gljs.createClient({
@@ -102,44 +119,53 @@ async function liveAdjudicate(
     account: gljs.createAccount(privateKey),
   });
 
-  // 1) Submit the deliverable for adjudication (write tx → consensus).
   await client.writeContract({
     address: contractAddress,
-    functionName: "adjudicate",
-    args: [jobId, spec, deliverable],
+    functionName: "decide",
+    args: [agentId, runId, instructions, input, action],
     value: 0n,
   });
 
-  // 2) Poll the view method until the verdict is finalized.
   for (let i = 0; i < 30; i++) {
     const raw: string = await client.readContract({
       address: contractAddress,
-      functionName: "get_verdict",
-      args: [jobId],
+      functionName: "get_response",
+      args: [runId],
     });
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const p = JSON.parse(raw);
       return {
-        meetsSpec: Boolean(parsed.meets_spec),
-        confidence: Number(parsed.confidence ?? 0),
-        reasoning: String(parsed.reasoning ?? ""),
+        response: String(p.response ?? ""),
+        decision: {
+          approved: Boolean(p.approved),
+          action: String(p.action ?? "none"),
+          confidence: Number(p.confidence ?? 0),
+          reasoning: String(p.reasoning ?? ""),
+        },
         source: "genlayer",
       };
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  throw new Error("Timed out waiting for GenLayer verdict finality.");
+  throw new Error("Timed out waiting for GenLayer consensus.");
 }
 
-export async function adjudicate(
-  jobId: string,
-  spec: string,
-  deliverable: string,
-): Promise<Verdict> {
-  if (config.adjudicatorMode === "live") {
-    return liveAdjudicate(jobId, spec, deliverable);
+export async function runAgent(params: {
+  agentId: string;
+  runId: string;
+  instructions: string;
+  input: string;
+  action: ActionKind;
+}): Promise<AgentRunResult> {
+  if (config.aiMode === "live") {
+    return liveRun(
+      params.agentId,
+      params.runId,
+      params.instructions,
+      params.input,
+      params.action,
+    );
   }
-  // Simulate consensus latency so the UI lifecycle feels real.
-  await new Promise((r) => setTimeout(r, 700));
-  return mockAdjudicate(spec, deliverable);
+  await new Promise((r) => setTimeout(r, 650)); // simulate consensus latency
+  return mockRun(params.instructions, params.input, params.action);
 }

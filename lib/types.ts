@@ -1,50 +1,60 @@
-// Shared domain types for the GenLayer + Arc agent kit.
-
-export type JobStatus =
-  | "draft"
-  | "funded"
-  | "submitted"
-  | "adjudicating"
-  | "approved"
-  | "rejected"
-  | "settled";
-
-/** The verdict produced by the GenLayer adjudicator (the "brain"). */
-export interface Verdict {
-  meetsSpec: boolean;
-  /** 0–100 confidence from validator consensus. */
-  confidence: number;
-  reasoning: string;
-  /** Where the verdict came from, so the UI can be honest about mock vs live. */
-  source: "genlayer" | "mock";
-}
-
-/** The result of an Arc settlement (the "rails"). */
-export interface Settlement {
-  action: "release" | "refund";
-  recipient: string;
-  amountUsdc: number;
-  feeUsdc: number;
-  txHash: string;
-  source: "arc" | "mock";
-}
-
-/** A freelance escrow job — the flagship use case. */
-export interface Job {
-  id: string;
-  title: string;
-  /** Acceptance criteria in natural language — this is what GenLayer judges against. */
-  spec: string;
-  budgetUsdc: number;
-  client: string;
-  freelancer: string;
-  status: JobStatus;
-  escrowId?: string;
-  fundingTxHash?: string;
-  deliverable?: string;
-  verdict?: Verdict;
-  settlement?: Settlement;
-  createdAt: string;
-}
+// Domain types for the GenLayer AI Agent platform.
 
 export type Mode = "mock" | "live";
+
+export type AgentStatus = "active" | "paused";
+
+/** What an agent is allowed to do on-chain when a decision approves an action. */
+export type ActionKind = "none" | "transfer" | "contract-call";
+
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  tagline: string;
+  instructions: string;
+  action: ActionKind;
+  actionLabel: string;
+  accent: string;
+  icon: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  templateId: string;
+  /** The agent's directive / persona — authoritative system prompt for GenLayer. */
+  instructions: string;
+  status: AgentStatus;
+  chainId: number;
+  action: ActionKind;
+  /** "suggest": user approves each tx · "auto": reserved for agent-owned wallets. */
+  autonomy: "suggest" | "auto";
+  createdAt: string;
+  runs: AgentRun[];
+}
+
+export interface AgentDecision {
+  approved: boolean;
+  action: ActionKind | string;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface AgentTx {
+  hash: string;
+  chainId: number;
+  explorerUrl: string;
+  summary: string;
+  status: "submitted" | "simulated";
+  source: "viem" | "mock";
+}
+
+export interface AgentRun {
+  id: string;
+  at: string;
+  input: string;
+  response: string;
+  decision: AgentDecision;
+  tx?: AgentTx;
+  source: "genlayer" | "mock";
+}

@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
-import { Header } from "@/components/Header";
 
 export const metadata: Metadata = {
-  title: "GenLayer × Arc — AI Agent Kit",
+  title: "GenLayer Agent Studio",
   description:
-    "Connect a wallet, post a job. GenLayer adjudicates, Arc settles in USDC.",
+    "Build and manage AI agents. GenLayer powers their decisions; approved actions run on testnet.",
 };
 
 export default function RootLayout({
@@ -17,10 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Providers>
-          <Header />
-          {children}
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

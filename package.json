@@ -1,8 +1,8 @@
 {
-  "name": "genlayer-arc-agent-kit",
-  "version": "0.1.0",
+  "name": "genlayer-agent-studio",
+  "version": "0.2.0",
   "private": true,
-  "description": "AI agent kit: GenLayer for AI adjudication, Arc for USDC settlement. Deployable on Vercel.",
+  "description": "Build and manage AI agents. GenLayer powers decisions; approved actions run on testnet. Deployable on Vercel.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
