@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { config } from "@/lib/config";
+import { kvEnabled } from "@/lib/kv";
 
 export const runtime = "nodejs";
 // Read env at request time so the UI reflects live config, not build-time.
@@ -10,5 +11,6 @@ export async function GET() {
     ok: true,
     ai: config.aiMode,
     tx: config.txMode,
+    kv: kvEnabled(),
   });
 }

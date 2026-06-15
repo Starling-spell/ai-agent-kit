@@ -27,8 +27,10 @@ export interface Agent {
   status: AgentStatus;
   chainId: number;
   action: ActionKind;
-  /** "suggest": user approves each tx · "auto": reserved for agent-owned wallets. */
+  /** "suggest": user approves each tx · "auto": the agent's own wallet signs. */
   autonomy: "suggest" | "auto";
+  /** Address of this agent's own testnet wallet when autonomy === "auto". */
+  walletAddress?: string;
   createdAt: string;
   runs: AgentRun[];
 }

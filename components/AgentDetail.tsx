@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, useChainId, useSendTransaction, useSwitchChain } from "wagmi";
 import { stringToHex } from "viem";
 import type { Agent, AgentRun, AgentTx } from "@/lib/types";
 import { templateById } from "@/lib/templates";
-import { chainName, explorerTx } from "@/lib/chains";
+import { chainName, explorerTx, faucetUrl } from "@/lib/chains";
+import { agentBalance, agentSendMemo, getAgentAddress } from "@/lib/agent-wallet";
 import { DecisionBadge } from "./agent-ui";
 
 export function AgentDetail({
@@ -29,6 +30,7 @@ export function AgentDetail({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(agent.instructions);
+  const [balance, setBalance] = useState<string | null>(null);
 
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -37,6 +39,33 @@ export function AgentDetail({
 
   const needsTx = agent.action !== "none";
   const live = txMode === "live";
+  const auto = agent.autonomy === "auto";
+  const agentAddr = auto ? agent.walletAddress ?? getAgentAddress(agent.id) : null;
+
+  useEffect(() => {
+    if (!auto) return;
+    let cancelled = false;
+    agentBalance(agent.id, agent.chainId)
+      .then((b) => !cancelled && setBalance(b))
+      .catch(() => !cancelled && setBalance(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [auto, agent.id, agent.chainId, agent.runs.length]);
+
+  async function mockExecute(): Promise<AgentTx> {
+    const er = await fetch("/api/agents/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chainId: agent.chainId,
+        summary: `${agent.name} · ${agent.action}`,
+      }),
+    });
+    const ed = await er.json();
+    if (!er.ok) throw new Error(ed.error ?? "Execute failed.");
+    return ed.tx;
+  }
 
   async function run() {
     if (!input.trim()) return setError("Enter an input for the agent to judge.");
@@ -61,15 +90,28 @@ export function AgentDetail({
 
       let tx: AgentTx | undefined;
       if (decision.approved && needsTx) {
-        if (live) {
+        const memo = `agent:${agent.name}:${decision.action}`;
+        if (live && auto) {
+          // The agent signs from its own funded testnet wallet — no user prompt.
+          const hash = await agentSendMemo(agent.id, agent.chainId, memo);
+          tx = {
+            hash,
+            chainId: agent.chainId,
+            explorerUrl: explorerTx(agent.chainId, hash),
+            summary: `${agent.name} · ${decision.action}`,
+            status: "submitted",
+            source: "viem",
+          };
+        } else if (live) {
+          // Suggest mode: the connected wallet signs.
           if (!isConnected || !address)
             throw new Error("Connect a wallet to execute the testnet action.");
           if (chainId !== agent.chainId)
             await switchChainAsync({ chainId: agent.chainId });
           const hash = await sendTransactionAsync({
-            to: address, // self-tx on testnet — demonstrates the action, moves no funds
+            to: address,
             value: 0n,
-            data: stringToHex(`agent:${agent.name}:${decision.action}`),
+            data: stringToHex(memo),
             chainId: agent.chainId,
           });
           tx = {
@@ -81,17 +123,7 @@ export function AgentDetail({
             source: "viem",
           };
         } else {
-          const er = await fetch("/api/agents/execute", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chainId: agent.chainId,
-              summary: `${agent.name} · ${decision.action}`,
-            }),
-          });
-          const ed = await er.json();
-          if (!er.ok) throw new Error(ed.error ?? "Execute failed.");
-          tx = ed.tx;
+          tx = await mockExecute();
         }
       }
 
@@ -112,6 +144,8 @@ export function AgentDetail({
     }
   }
 
+  const faucet = faucetUrl(agent.chainId);
+
   return (
     <div className="detail">
       <button className="back" onClick={onBack}>
@@ -126,6 +160,7 @@ export function AgentDetail({
           <div className="detail-name">{agent.name}</div>
           <div className="detail-sub">
             {t.name} · {chainName(agent.chainId)} ·{" "}
+            {auto ? "autonomous" : "suggest"} ·{" "}
             {needsTx ? t.actionLabel : "no transaction"}
           </div>
         </div>
@@ -146,6 +181,29 @@ export function AgentDetail({
 
       <div className="detail-grid">
         <div className="panel">
+          {auto && (
+            <div className="wallet-box">
+              <div className="wallet-box-head">
+                <span>🔑 Agent wallet</span>
+                <span className="mono small">
+                  {agentAddr ? `${agentAddr.slice(0, 10)}…${agentAddr.slice(-6)}` : "key not on this device"}
+                </span>
+              </div>
+              <div className="wallet-box-row">
+                <span>Balance: {balance != null ? `${Number(balance).toFixed(4)} ` : "… "}testnet ETH</span>
+                {faucet && (
+                  <a href={faucet} target="_blank" rel="noreferrer" className="link-btn">
+                    Fund from faucet ↗
+                  </a>
+                )}
+              </div>
+              <div className="wallet-box-note">
+                Key stored in this browser only · testnet · zero-value memo tx.
+                {live ? "" : " (Simulated until TX_MODE=live.)"}
+              </div>
+            </div>
+          )}
+
           <div className="panel-head">
             <h3>Directive</h3>
             {!editing ? (
@@ -176,11 +234,7 @@ export function AgentDetail({
             )}
           </div>
           {editing ? (
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={6}
-            />
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={6} />
           ) : (
             <p className="directive">{agent.instructions}</p>
           )}
@@ -197,9 +251,14 @@ export function AgentDetail({
           />
           {needsTx && (
             <div className="tx-hint">
-              On approval this {live ? "sends a real testnet transaction from your wallet" : "simulates a testnet transaction"} on{" "}
-              {chainName(agent.chainId)}.
-              {live && !isConnected && " Connect a wallet first."}
+              On approval this{" "}
+              {!live
+                ? "simulates a testnet transaction"
+                : auto
+                  ? "is signed by the agent's own wallet"
+                  : "is signed by your connected wallet"}{" "}
+              on {chainName(agent.chainId)}.
+              {live && !auto && !isConnected && " Connect a wallet first."}
             </div>
           )}
           <div className="btn-row">
@@ -223,7 +282,9 @@ export function AgentDetail({
             <span className="muted-text">{agent.runs.length} runs</span>
           </div>
           {agent.runs.length === 0 ? (
-            <div className="empty small">No runs yet. Run the agent to see decisions and testnet transactions here.</div>
+            <div className="empty small">
+              No runs yet. Run the agent to see decisions and testnet transactions here.
+            </div>
           ) : (
             <ul className="run-list">
               {agent.runs.map((r) => (

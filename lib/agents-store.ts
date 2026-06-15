@@ -60,4 +60,9 @@ export const agentsStore = {
   remove(id: string) {
     write(read().filter((a) => a.id !== id));
   },
+
+  /** Replace the whole local list (used when syncing from the cloud store). */
+  replaceAll(agents: Agent[]) {
+    write(agents);
+  },
 };

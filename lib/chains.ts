@@ -31,3 +31,16 @@ export function explorerTx(chainId: number, hash: string): string {
   const base = chains.find((c) => c.id === chainId)?.blockExplorers?.default.url;
   return base ? `${base}/tx/${hash}` : "";
 }
+
+const FAUCETS: Record<number, string> = {
+  [baseSepolia.id]: "https://www.alchemy.com/faucets/base-sepolia",
+  [arbitrumSepolia.id]: "https://www.alchemy.com/faucets/arbitrum-sepolia",
+  [optimismSepolia.id]: "https://www.alchemy.com/faucets/optimism-sepolia",
+  [polygonAmoy.id]: "https://www.alchemy.com/faucets/polygon-amoy",
+  [sepolia.id]: "https://www.alchemy.com/faucets/ethereum-sepolia",
+};
+
+/** A public testnet faucet for funding an agent wallet on the given chain. */
+export function faucetUrl(chainId: number): string {
+  return FAUCETS[chainId] ?? "";
+}

@@ -1,53 +1,74 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAccount } from "wagmi";
 import { Sidebar, type View } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { StatTile, AgentCard } from "@/components/agent-ui";
 import { CreateAgentModal } from "@/components/CreateAgentModal";
 import { AgentDetail } from "@/components/AgentDetail";
-import { agentsStore } from "@/lib/agents-store";
+import { loadAgents, saveAgents } from "@/lib/store";
+import { removeAgentWallet } from "@/lib/agent-wallet";
 import type { Agent, AgentRun } from "@/lib/types";
 
 export default function Home() {
+  const { address } = useAccount();
   const [view, setView] = useState<View>("overview");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [mode, setMode] = useState<{ ai: string; tx: string } | null>(null);
+  const [mode, setMode] = useState<{ ai: string; tx: string; kv: boolean } | null>(
+    null,
+  );
 
-  const refresh = () => setAgents(agentsStore.list());
+  const owner = address ?? null;
+  const kv = !!mode?.kv;
 
   useEffect(() => {
-    refresh();
     fetch("/api/health")
       .then((r) => r.json())
       .then(setMode)
       .catch(() => setMode(null));
   }, []);
 
+  // (Re)load agents whenever the owner or storage backend changes.
+  useEffect(() => {
+    let cancelled = false;
+    loadAgents(owner, kv).then((a) => !cancelled && setAgents(a));
+    return () => {
+      cancelled = true;
+    };
+  }, [owner, kv]);
+
+  function persist(next: Agent[]) {
+    setAgents(next);
+    void saveAgents(owner, kv, next);
+  }
+
   const selected = selectedId
     ? agents.find((a) => a.id === selectedId) ?? null
     : null;
 
   function createAgent(a: Agent) {
-    agentsStore.create(a);
+    persist([a, ...agents]);
     setCreateOpen(false);
-    refresh();
     setSelectedId(a.id);
   }
   function addRun(id: string, run: AgentRun) {
-    agentsStore.addRun(id, run);
-    refresh();
+    persist(
+      agents.map((x) =>
+        x.id === id ? { ...x, runs: [run, ...x.runs].slice(0, 50) } : x,
+      ),
+    );
   }
   function updateAgent(id: string, patch: Partial<Agent>) {
-    agentsStore.update(id, patch);
-    refresh();
+    persist(agents.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
   function deleteAgent(id: string) {
-    agentsStore.remove(id);
+    const a = agents.find((x) => x.id === id);
+    if (a?.autonomy === "auto") removeAgentWallet(id);
+    persist(agents.filter((x) => x.id !== id));
     setSelectedId(null);
-    refresh();
   }
 
   const totalRuns = agents.reduce((n, a) => n + a.runs.length, 0);
@@ -73,7 +94,10 @@ export default function Home() {
       <div className="main">
         {selected ? (
           <>
-            <Topbar title={selected.name} subtitle="Agent detail" />
+            <Topbar
+              title={selected.name}
+              subtitle={kv && owner ? "Agent detail · synced" : "Agent detail"}
+            />
             <div className="content">
               <AgentDetail
                 agent={selected}
@@ -89,7 +113,11 @@ export default function Home() {
           <>
             <Topbar
               title="Overview"
-              subtitle="Your GenLayer agents at a glance"
+              subtitle={
+                kv && owner
+                  ? "Synced to your wallet across devices"
+                  : "Your GenLayer agents at a glance"
+              }
               onNew={() => setCreateOpen(true)}
             />
             <div className="content">

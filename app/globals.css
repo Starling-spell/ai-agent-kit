@@ -754,3 +754,83 @@ label {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ---- autonomy segmented control ---- */
+.seg {
+  display: flex;
+  gap: 8px;
+}
+.seg button {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.seg button.active {
+  border-color: var(--gen);
+  color: var(--text);
+  background: rgba(139, 124, 240, 0.14);
+}
+.seg button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.warn-note {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: #f0c089;
+  background: rgba(224, 118, 61, 0.1);
+  border: 1px solid rgba(224, 118, 61, 0.4);
+  border-radius: 8px;
+  padding: 9px 11px;
+  line-height: 1.45;
+}
+.muted-note {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.row-gap {
+  display: flex;
+  gap: 12px;
+}
+.small {
+  font-size: 11px;
+}
+
+/* ---- agent wallet box ---- */
+.wallet-box {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.wallet-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+.wallet-box-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.wallet-box-note {
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 8px;
+  line-height: 1.4;
+}
