@@ -188,7 +188,14 @@ export function AgentDetail({
       });
       setInput("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Run failed.");
+      console.error("[Orion] agent run failed:", e);
+      const err = e as { message?: string; shortMessage?: string };
+      const msg =
+        err?.shortMessage ||
+        err?.message ||
+        (typeof e === "string" ? e : "") ||
+        "Run failed.";
+      setError(msg);
     } finally {
       setBusy(false);
     }
